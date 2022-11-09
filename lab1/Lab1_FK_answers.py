@@ -112,7 +112,6 @@ def part2_forward_kinematics(joint_name, joint_parent, joint_offset, motion_data
 
     return joint_positions, joint_orientations
 
-
 def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
     """
     将 A-pose的bvh重定向到T-pose上
@@ -127,7 +126,6 @@ def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
     T_joint_name, T_joint_parent, T_joint_offset = part1_calculate_T_pose(T_pose_bvh_path)
     T_motion_data = np.zeros(A_motion_data.shape, dtype=np.float)
 
-
     rot_channel = 1
     T_rot_channels = []
     for i in range(len(T_joint_name)):
@@ -137,19 +135,10 @@ def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
         else:
             T_rot_channels.append(-1)
 
-    rot_channel = 1
-    A_rot_channels = []
-    for i in range(len(A_joint_name)):
-        if not A_joint_name[i].endswith("_end"):
-            A_rot_channels.append(rot_channel)
-            rot_channel += 1
-        else:
-            A_rot_channels.append(-1)
-
-
-
     for f in range(A_motion_data.shape[0]):
-        A_joint_positions, A_joint_orientations = part2_forward_kinematics(A_joint_name, A_joint_parent, A_joint_offset, A_motion_data, f)
+        T_motion_data[f][0:3] = A_motion_data[f][0:3]
+
+        _, A_joint_orientations = part2_forward_kinematics(A_joint_name, A_joint_parent, A_joint_offset, A_motion_data, f)
         T_joint_orientations = np.zeros(A_joint_orientations.shape, dtype=np.float)
 
         for T_m_index in range(len(T_joint_name)):
@@ -159,44 +148,39 @@ def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
             if T_p_index < 0: continue
             A_p_index = A_joint_name.index(T_joint_name[T_p_index])
 
-            T_p_rot_channel = T_rot_channels[T_p_index]
-            A_p_rot_channel = A_rot_channels[A_p_index]
-
-            T_motion_data[f][T_p_rot_channel*3:(T_p_rot_channel+1)*3] = A_motion_data[f][A_p_rot_channel*3:(A_p_rot_channel+1)*3]
-            T_p_l_rot = R.from_euler('XYZ',T_motion_data[f][T_p_rot_channel*3:(T_p_rot_channel+1)*3])
-
-            T_gp_w_rot = R.from_quat(np.array([0.0, 0.0, 0.0, 1.0]))
+            T_gp_w_rot_quat = np.array([0.0, 0.0, 0.0, 1.0])
             T_gp_index = T_joint_parent[T_p_index]
             if T_gp_index >= 0:
-                T_gp_w_rot = R.from_quat(T_joint_orientations[T_gp_index])
+                T_gp_w_rot_quat = T_joint_orientations[T_gp_index]
 
             T_m_offset = T_joint_offset[T_m_index]
+            T_m_offset = T_m_offset / np.linalg.norm(T_m_offset)
             A_m_offset = A_joint_offset[A_m_index]
+            A_m_offset = A_m_offset / np.linalg.norm(A_m_offset)
+            half = T_m_offset + A_m_offset
+            half = half / np.linalg.norm(half)
 
-            T_p_w_rot = T_gp_w_rot * T_p_l_rot
-            A_p_w_rot = R.from_quat(A_joint_orientations[A_p_index])
+            delta_qot_quat = np.array([0.0, 0.0, 0.0, 1.0])
+            cos_theta_2 = np.dot(T_m_offset, half)
+            normal = np.cross(T_m_offset, half)
+            sin_theta_2 = np.linalg.norm(normal)
+            if sin_theta_2 != 0:
+                normal = normal / sin_theta_2
+                delta_qot_quat[0] = normal[0] * sin_theta_2
+                delta_qot_quat[1] = normal[1] * sin_theta_2
+                delta_qot_quat[2] = normal[2] * sin_theta_2
+                delta_qot_quat[3] = cos_theta_2
 
-            T_p_w_rot_eular = T_p_w_rot.as_euler('XYZ', degrees=True)
-            A_p_w_rot_eular = A_p_w_rot.as_euler('XYZ', degrees=True)
+            A_p_w_rot_quat = A_joint_orientations[A_p_index]
 
-            T_offset = np.inner(T_p_w_rot.as_matrix(), T_m_offset)
-            A_offset = np.inner(A_p_w_rot.as_matrix(), A_m_offset)
+            T_gp_w_rot_mat = R.from_quat(T_gp_w_rot_quat).as_matrix()
+            A_p_w_rot_mat = R.from_quat(A_p_w_rot_quat).as_matrix()
+            delta_qot_mat = R.from_quat(delta_qot_quat).as_matrix()
 
-            if np.linalg.norm(T_offset - A_offset) > 0.0001:
-                print("change the i:", T_p_index)
-                rot_vec = T_offset + A_offset
-                rot_vec = rot_vec / np.linalg.norm(rot_vec)
-                rot_vec = np.pi * rot_vec
+            T_p_l_rot_eualr = R.from_matrix(np.linalg.inv(T_gp_w_rot_mat) @ A_p_w_rot_mat @ delta_qot_mat).as_euler('XYZ', degrees=True)
 
-                rot_mat = (R.from_rotvec(rot_vec) * T_p_w_rot).as_matrix()
-                rot_mat = np.linalg.inv(T_p_w_rot.as_matrix()) @ rot_mat
-
-                delta_rot = R.from_matrix(rot_mat)
-
-                T_p_l_rot = T_p_l_rot * delta_rot
-                T_p_w_rot = T_gp_w_rot * T_p_l_rot
-
-            T_motion_data[f][T_p_rot_channel*3:(T_p_rot_channel+1)*3] = T_p_l_rot.as_euler('XYZ', degrees=True)
-            T_joint_orientations[T_p_index] = T_p_w_rot.as_quat()
+            T_p_rot_channel = T_rot_channels[T_p_index]
+            T_motion_data[f][T_p_rot_channel*3:(T_p_rot_channel+1)*3] = T_p_l_rot_eualr
+            T_joint_orientations[T_p_index] = (R.from_quat(T_gp_w_rot_quat) * R.from_euler('XYZ', T_p_l_rot_eualr, degrees=True)).as_quat()
 
     return T_motion_data
