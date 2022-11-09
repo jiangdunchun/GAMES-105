@@ -121,6 +121,9 @@ def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
     Tips:
         两个bvh的joint name顺序可能不一致哦(
     """
+    
+    print("ATTENTION: this function is really slow, you just wait, wait for sunshine!!!!!!!")
+
     A_joint_name, A_joint_parent, A_joint_offset = part1_calculate_T_pose(A_pose_bvh_path)
     A_motion_data = load_motion_data(A_pose_bvh_path)
     T_joint_name, T_joint_parent, T_joint_offset = part1_calculate_T_pose(T_pose_bvh_path)
@@ -134,33 +137,20 @@ def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
             rot_channel += 1
         else:
             T_rot_channels.append(-1)
+    
+    delta_qot_mats = []
+    for T_m_index in range(len(T_joint_name)):
+        A_m_index = A_joint_name.index(T_joint_name[T_m_index])
 
-    for f in range(A_motion_data.shape[0]):
-        T_motion_data[f][0:3] = A_motion_data[f][0:3]
-
-        _, A_joint_orientations = part2_forward_kinematics(A_joint_name, A_joint_parent, A_joint_offset, A_motion_data, f)
-        T_joint_orientations = np.zeros(A_joint_orientations.shape, dtype=np.float)
-
-        for T_m_index in range(len(T_joint_name)):
-            A_m_index = A_joint_name.index(T_joint_name[T_m_index])
-
-            T_p_index = T_joint_parent[T_m_index]
-            if T_p_index < 0: continue
-            A_p_index = A_joint_name.index(T_joint_name[T_p_index])
-
-            T_gp_w_rot_quat = np.array([0.0, 0.0, 0.0, 1.0])
-            T_gp_index = T_joint_parent[T_p_index]
-            if T_gp_index >= 0:
-                T_gp_w_rot_quat = T_joint_orientations[T_gp_index]
-
-            T_m_offset = T_joint_offset[T_m_index]
+        delta_qot_quat = np.array([0.0, 0.0, 0.0, 1.0])
+        T_m_offset = T_joint_offset[T_m_index]
+        if np.linalg.norm(T_m_offset) != 0:
             T_m_offset = T_m_offset / np.linalg.norm(T_m_offset)
             A_m_offset = A_joint_offset[A_m_index]
             A_m_offset = A_m_offset / np.linalg.norm(A_m_offset)
             half = T_m_offset + A_m_offset
             half = half / np.linalg.norm(half)
 
-            delta_qot_quat = np.array([0.0, 0.0, 0.0, 1.0])
             cos_theta_2 = np.dot(T_m_offset, half)
             normal = np.cross(T_m_offset, half)
             sin_theta_2 = np.linalg.norm(normal)
@@ -171,11 +161,29 @@ def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
                 delta_qot_quat[2] = normal[2] * sin_theta_2
                 delta_qot_quat[3] = cos_theta_2
 
+        delta_qot_mats.append(R.from_quat(delta_qot_quat).as_matrix())
+
+    for f in range(A_motion_data.shape[0]):
+        T_motion_data[f][0:3] = A_motion_data[f][0:3]
+
+        _, A_joint_orientations = part2_forward_kinematics(A_joint_name, A_joint_parent, A_joint_offset, A_motion_data, f)
+        T_joint_orientations = np.zeros(A_joint_orientations.shape, dtype=np.float)
+
+        for T_m_index in range(len(T_joint_name)):
+            T_p_index = T_joint_parent[T_m_index]
+            if T_p_index < 0: continue
+            A_p_index = A_joint_name.index(T_joint_name[T_p_index])
+
+            T_gp_w_rot_quat = np.array([0.0, 0.0, 0.0, 1.0])
+            T_gp_index = T_joint_parent[T_p_index]
+            if T_gp_index >= 0:
+                T_gp_w_rot_quat = T_joint_orientations[T_gp_index]
+
             A_p_w_rot_quat = A_joint_orientations[A_p_index]
 
             T_gp_w_rot_mat = R.from_quat(T_gp_w_rot_quat).as_matrix()
             A_p_w_rot_mat = R.from_quat(A_p_w_rot_quat).as_matrix()
-            delta_qot_mat = R.from_quat(delta_qot_quat).as_matrix()
+            delta_qot_mat = delta_qot_mats[T_m_index]
 
             T_p_l_rot_eualr = R.from_matrix(np.linalg.inv(T_gp_w_rot_mat) @ A_p_w_rot_mat @ delta_qot_mat).as_euler('XYZ', degrees=True)
 
