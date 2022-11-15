@@ -22,8 +22,7 @@ def part1_inverse_kinematics(meta_data, joint_positions, joint_orientations, tar
     end_position = joint_positions[path_e2r[0]]
 
     for iter in range(32):
-        for i in range(len(path_e2r) - 1):
-            p_index = path_e2r[i + 1]
+        for p_index in path_e2r[1:]:
             p_position = joint_positions[p_index]
 
             from_vec = end_position - p_position
@@ -49,7 +48,11 @@ def part1_inverse_kinematics(meta_data, joint_positions, joint_orientations, tar
             if joint_parent[p_index] >= 0:
                 gp_orientation = R.from_quat(joint_orientations[joint_parent[p_index]])
             gp_orientation_inv = R.from_matrix(np.linalg.inv(gp_orientation.as_matrix()))
+
             local_orientations[p_index] = (gp_orientation_inv * R.from_quat(delta_qot_quat) * gp_orientation * R.from_quat(local_orientations[p_index])).as_quat()
+
+        for p_index in path_r2r[-1:0:-1]:
+            print(p_index, end=" ")
 
         for m_index in range(len(joint_parent)):
             p_index = joint_parent[m_index]
