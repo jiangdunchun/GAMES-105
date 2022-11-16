@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+import copy
 
 def part1_inverse_kinematics(meta_data, joint_positions, joint_orientations, target_pose):
     """
@@ -14,10 +15,22 @@ def part1_inverse_kinematics(meta_data, joint_positions, joint_orientations, tar
         joint_positions: 计算得到的关节位置，是一个numpy数组，shape为(M, 3)，M为关节数
         joint_orientations: 计算得到的关节朝向，是一个numpy数组，shape为(M, 4)，M为关节数
     """
-    path, path_name, path_e2r, path_r2r = meta_data.get_path_from_root_to_end()
-    joint_parent = meta_data.joint_parent
+    path, path_name, _, path_r2r = meta_data.get_path_from_root_to_end()
     joint_initial_position = meta_data.joint_initial_position
-
+    joint_parent = copy.deepcopy(meta_data.joint_parent)
+    update_order =[]
+    for i in range(len(path_r2r)):
+        update_order.append(path_r2r[i])
+        if i == 0:
+            joint_parent[path_r2r[i]] = -1
+        else:
+            joint_parent[path_r2r[i]] = path_r2r[i-1]
+    for i in range(len(joint_parent)):
+        if i not in update_order:
+            update_order.append(i)
+    
+    path_e2r = path
+    path_e2r.reverse()
     local_orientations = []
     for m_index in range(len(joint_parent)):
         p_index = joint_parent[m_index]
@@ -48,7 +61,7 @@ def part1_inverse_kinematics(meta_data, joint_positions, joint_orientations, tar
             normals.append(normal)
 
         J_T = np.transpose(J)
-        dtheta = 1.0 * J_T @ V
+        dtheta = 0.5 * J_T @ V
 
         for i in range(1, len(path_e2r)):
             delta_theta = dtheta[i-1][0]
@@ -56,7 +69,7 @@ def part1_inverse_kinematics(meta_data, joint_positions, joint_orientations, tar
             delta_rot = R.from_rotvec(delta_theta * normal)
             local_orientations[path_e2r[i]] = delta_rot * local_orientations[path_e2r[i]]
 
-        for m_index in range(len(joint_parent)):
+        for m_index in update_order:
             p_index = joint_parent[m_index]
             if p_index >= 0:
                 offset = joint_initial_position[m_index] - joint_initial_position[p_index]
@@ -68,6 +81,28 @@ def part1_inverse_kinematics(meta_data, joint_positions, joint_orientations, tar
         print(iter, " ", distance)
         if distance < 0.01:
             break
+    
+    joint_parent = meta_data.joint_parent
+    for m_index in update_order:
+        p_index = joint_parent[m_index]
+        if p_index >= 0:
+            from_vec = joint_initial_position[m_index] - joint_initial_position[p_index]
+            to_vec = joint_positions[m_index] - joint_positions[p_index]
+            from_vec_norm = from_vec / np.linalg.norm(from_vec)
+            to_vec_norm = to_vec / np.linalg.norm(to_vec)
+            half = from_vec_norm + to_vec_norm
+            half = half / np.linalg.norm(half)
+            delta_qot_quat = np.array([0.0, 0.0, 0.0, 1.0])
+            cos_theta_2 = np.dot(from_vec_norm, half)
+            normal = np.cross(from_vec_norm, half)
+            sin_theta_2 = np.linalg.norm(normal)
+            if sin_theta_2 != 0:
+                normal = normal / sin_theta_2
+                delta_qot_quat[0] = normal[0] * sin_theta_2
+                delta_qot_quat[1] = normal[1] * sin_theta_2
+                delta_qot_quat[2] = normal[2] * sin_theta_2
+                delta_qot_quat[3] = cos_theta_2
+            joint_orientations[p_index] = delta_qot_quat
 
     
     return joint_positions, joint_orientations
