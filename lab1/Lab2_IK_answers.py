@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+import copy
 
 def part1_inverse_kinematics(meta_data, joint_positions, joint_orientations, target_pose):
     """
@@ -18,41 +19,45 @@ def part1_inverse_kinematics(meta_data, joint_positions, joint_orientations, tar
     joint_parent = meta_data.joint_parent
     joint_initial_position = meta_data.joint_initial_position
 
-    local_orientations = np.copy(joint_orientations)
-    end_position = joint_positions[path_e2r[0]]
+    local_orientations = []
+    for m_index in range(len(joint_parent)):
+        
+        p_index = joint_parent[m_index]
+        p_orientation = np.array([0.0, 0.0, 0.0, 1.0])
+        if p_index >= 0:
+            p_orientation = copy.deepcopy(joint_orientations[p_index])
+            p_orientation[3] = -1.0 * p_orientation[3]
+        local_orientations.append(R.from_quat(p_orientation) * R.from_quat(joint_orientations[m_index]))
 
-    for iter in range(32):
-        for p_index in path_e2r[1:]:
-            p_position = joint_positions[p_index]
+    for iter in range(100):
+        V = target_pose - joint_positions[path_e2r[0]]
+        V = V.reshape(-1, 1)
+        J = np.zeros([3, len(path_e2r) - 1], dtype=float)
+        normals = []
 
-            from_vec = end_position - p_position
+        for i in range(1, len(path_e2r)):
+            p_position = joint_positions[path_e2r[i]]
+
+            from_vec = joint_positions[path_e2r[0]] - p_position
             to_vec = target_pose - p_position
-            end_position = p_position + np.linalg.norm(from_vec) * to_vec / np.linalg.norm(to_vec)
+            normal = np.cross(from_vec, to_vec)
+            normal = normal / np.linalg.norm(normal)
 
-            from_vec_norm = from_vec / np.linalg.norm(from_vec)
-            to_vec_norm = to_vec / np.linalg.norm(to_vec)
-            half = from_vec_norm + to_vec_norm
-            half = half / np.linalg.norm(half)
-            delta_qot_quat = np.array([0.0, 0.0, 0.0, 1.0])
-            cos_theta_2 = np.dot(from_vec_norm, half)
-            normal = np.cross(from_vec_norm, half)
-            sin_theta_2 = np.linalg.norm(normal)
-            if sin_theta_2 != 0:
-                normal = normal / sin_theta_2
-                delta_qot_quat[0] = normal[0] * sin_theta_2
-                delta_qot_quat[1] = normal[1] * sin_theta_2
-                delta_qot_quat[2] = normal[2] * sin_theta_2
-                delta_qot_quat[3] = cos_theta_2
+            dpdi = np.cross(normal, from_vec)
+            J[0][i-1] = dpdi[0]
+            J[1][i-1] = dpdi[1]
+            J[2][i-1] = dpdi[2]
 
-            gp_orientation = R.from_quat(np.array([0.0, 0.0, 0.0, 1.0]))
-            if joint_parent[p_index] >= 0:
-                gp_orientation = R.from_quat(joint_orientations[joint_parent[p_index]])
-            gp_orientation_inv = R.from_matrix(np.linalg.inv(gp_orientation.as_matrix()))
+            normals.append(normal)
 
-            local_orientations[p_index] = (gp_orientation_inv * R.from_quat(delta_qot_quat) * gp_orientation * R.from_quat(local_orientations[p_index])).as_quat()
+        J_T = np.transpose(J)
+        dtheta = 1.0 * J_T @ V
 
-        for p_index in path_r2r[-1:0:-1]:
-            print(p_index, end=" ")
+        for i in range(1, len(path_e2r)):
+            delta_theta = dtheta[i-1][0]
+            normal = normals[i-1]
+            delta_rot = R.from_rotvec(delta_theta * normal)
+            local_orientations[path_e2r[i]] = delta_rot * local_orientations[path_e2r[i]]
 
         for m_index in range(len(joint_parent)):
             p_index = joint_parent[m_index]
@@ -60,10 +65,11 @@ def part1_inverse_kinematics(meta_data, joint_positions, joint_orientations, tar
                 offset = joint_initial_position[m_index] - joint_initial_position[p_index]
                 p_position = joint_positions[p_index]
                 joint_positions[m_index] = p_position + np.inner(R.from_quat(joint_orientations[p_index]).as_matrix(), offset)
-                joint_orientations[m_index] = (R.from_quat(joint_orientations[p_index]) * R.from_quat(local_orientations[m_index])).as_quat()
+                joint_orientations[m_index] = (R.from_quat(joint_orientations[p_index]) * local_orientations[m_index]).as_quat()
 
-        distance = np.linalg.norm(end_position - target_pose)
-        if distance < 0.0001:
+        distance = np.linalg.norm(joint_positions[path_e2r[0]] - target_pose)
+        print(iter, " ", distance)
+        if distance < 0.01:
             break
 
     
