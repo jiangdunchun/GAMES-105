@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-import copy
 
 def part1_inverse_kinematics(meta_data, joint_positions, joint_orientations, target_pose):
     """
@@ -21,13 +20,11 @@ def part1_inverse_kinematics(meta_data, joint_positions, joint_orientations, tar
 
     local_orientations = []
     for m_index in range(len(joint_parent)):
-        
         p_index = joint_parent[m_index]
         p_orientation = np.array([0.0, 0.0, 0.0, 1.0])
         if p_index >= 0:
-            p_orientation = copy.deepcopy(joint_orientations[p_index])
-            p_orientation[3] = -1.0 * p_orientation[3]
-        local_orientations.append(R.from_quat(p_orientation) * R.from_quat(joint_orientations[m_index]))
+            p_orientation = joint_orientations[p_index]
+        local_orientations.append(R.inv(R.from_quat(p_orientation)) * R.from_quat(joint_orientations[m_index]))
 
     for iter in range(100):
         V = target_pose - joint_positions[path_e2r[0]]
