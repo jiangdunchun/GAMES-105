@@ -206,6 +206,11 @@ class BVHMotion():
         Ry = np.zeros_like(rotation)
         Rxz = np.zeros_like(rotation)
         # TODO: 你的代码
+        rot_euler = R.from_quat(rotation).as_euler('YXZ', degrees=False)
+        Ry = np.array([0, np.sin(rot_euler[0]/2), 0, np.cos(rot_euler[0]/2)])
+        Ry_i = np.copy(Ry)
+        Ry_i[1] = Ry[1] * -1
+        Rxz = (R.from_quat(Ry_i) * R.from_quat(rotation)).as_quat()
         
         return Ry, Rxz
     
@@ -230,6 +235,33 @@ class BVHMotion():
         offset = target_translation_xz - res.joint_position[frame_num, 0, [0,2]]
         res.joint_position[:, 0, [0,2]] += offset
         # TODO: 你的代码
+        rot = res.joint_rotation[frame_num][0]
+        rot_y,_ = self.decompose_rotation_with_yaxis(rot)
+        rot_y_i = np.copy(rot_y)
+        rot_y_i[1] = rot_y_i[1] * -1
+
+        to_vec_norm = target_facing_direction_xz / np.linalg.norm(target_facing_direction_xz)
+        from_vec_norm = np.array([0, 1])
+        half = to_vec_norm + from_vec_norm
+        half = half / np.linalg.norm(half)
+        cos_theta_2 = half[1]
+        sin_theta_2 = half[0]
+
+        dest_rot = np.array([0, sin_theta_2, 0, cos_theta_2])
+        delta_rot = R.from_quat(dest_rot) * R.from_quat(rot_y_i)
+
+        frame_count = res.joint_position.shape[0]
+
+        for f in range(frame_count):
+            res.joint_rotation[f][0] = (delta_rot * R.from_quat(res.joint_rotation[f][0])).as_quat()
+
+        from_pos = res.joint_position[frame_num][0]
+        to_pos = np.array([target_translation_xz[0], res.joint_position[frame_num][0][1],target_translation_xz[1]])
+        for f in range(frame_count):
+            from_delta_trans = res.joint_position[f][0] - from_pos
+            to_delta_trans = np.inner(delta_rot.as_matrix(), from_delta_trans)
+            res.joint_position[f][0] = to_delta_trans + to_pos
+
         return res
 
 # part2
