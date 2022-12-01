@@ -208,9 +208,7 @@ class BVHMotion():
         # TODO: 你的代码
         rot_euler = R.from_quat(rotation).as_euler('YXZ', degrees=False)
         Ry = np.array([0, np.sin(rot_euler[0]/2), 0, np.cos(rot_euler[0]/2)])
-        Ry_i = np.copy(Ry)
-        Ry_i[1] = Ry[1] * -1
-        Rxz = (R.from_quat(Ry_i) * R.from_quat(rotation)).as_quat()
+        Rxz = (R.inv(R.from_quat(Ry)) * R.from_quat(rotation)).as_quat()
         
         return Ry, Rxz
     
@@ -237,8 +235,6 @@ class BVHMotion():
         # TODO: 你的代码
         rot = res.joint_rotation[frame_num][0]
         rot_y,_ = self.decompose_rotation_with_yaxis(rot)
-        rot_y_i = np.copy(rot_y)
-        rot_y_i[1] = rot_y_i[1] * -1
 
         to_vec_norm = target_facing_direction_xz / np.linalg.norm(target_facing_direction_xz)
         from_vec_norm = np.array([0, 1])
@@ -248,7 +244,7 @@ class BVHMotion():
         sin_theta_2 = half[0]
 
         dest_rot = np.array([0, sin_theta_2, 0, cos_theta_2])
-        delta_rot = R.from_quat(dest_rot) * R.from_quat(rot_y_i)
+        delta_rot = R.from_quat(dest_rot) * R.inv(R.from_quat(rot_y))
 
         frame_count = res.joint_position.shape[0]
 
@@ -263,6 +259,38 @@ class BVHMotion():
             res.joint_position[f][0] = to_delta_trans + to_pos
 
         return res
+
+def lerp(trans1, trans2, t):
+    return (1 - t) * trans1 + t * trans2
+
+def slerp(quat1, quat2, t):
+    quat1 = quat1 / np.linalg.norm(quat1)
+    quat2 = quat2 / np.linalg.norm(quat2)
+
+    ret = np.array([0, 0, 0, 1])
+
+    cos_half_theta = np.sum(np.dot(quat1, quat2))
+    if cos_half_theta < 0:
+        cos_half_theta = -1 * cos_half_theta
+        quat2 = -1 * quat2
+
+    half_theta = np.arccos(cos_half_theta)
+    sin_half_theta = np.sqrt(1 - cos_half_theta * cos_half_theta)
+
+    t_1 = 0.0
+    t_2 = 0.0
+    if np.abs(sin_half_theta) > 1e-5:
+        sin_half_theta_overed_1 = 1 / sin_half_theta
+        t_1 = np.sin((1 - t) * half_theta) * sin_half_theta_overed_1
+        t_2 = np.sin(t * half_theta) * sin_half_theta_overed_1
+    else:
+        t_1 = 1 - t
+        t_2 = t
+
+    ret = t_1 * quat1 + t_2 * quat2
+    ret = ret / np.linalg.norm(ret)
+
+    return ret
 
 # part2
 def blend_two_motions(bvh_motion1, bvh_motion2, alpha):
@@ -280,6 +308,30 @@ def blend_two_motions(bvh_motion1, bvh_motion2, alpha):
     res.joint_rotation[...,3] = 1.0
 
     # TODO: 你的代码
+    n1 = bvh_motion1.motion_length
+    n2 = bvh_motion2.motion_length
+    n = alpha.shape[0]
+
+    joint_len = len(bvh_motion1.joint_channel)
+    for f in range(n):
+        f1 = f * n1 / n
+        f1_low = int(f1)
+        f1_high = f1_low if f1_low + 1 == n1 else f1_low + 1
+        f1_t = f1 - f1_low
+
+        f2 = f * n2 / n
+        f2_low = int(f2)
+        f2_high = f2_low if f2_low + 1 == n2 else f2_low + 1
+        f2_t = f2 - f2_low
+
+        for j in range(joint_len):
+            trans1 = lerp(bvh_motion1.joint_position[f1_low][j], bvh_motion1.joint_position[f1_high][j], f1_t)
+            trans2 = lerp(bvh_motion2.joint_position[f2_low][j], bvh_motion2.joint_position[f2_high][j], f2_t)
+            res.joint_position[f][j] = lerp(trans1, trans2, alpha[f])
+
+            rot1 = slerp(bvh_motion1.joint_rotation[f1_low][j], bvh_motion1.joint_rotation[f1_high][j], f1_t)
+            rot2 = slerp(bvh_motion2.joint_rotation[f2_low][j], bvh_motion2.joint_rotation[f2_high][j], f2_t)
+            res.joint_rotation[f][j] = slerp(rot1, rot2, alpha[f])
     
     return res
 
@@ -310,8 +362,33 @@ def concatenate_two_motions(bvh_motion1, bvh_motion2, mix_frame1, mix_time):
     
     # TODO: 你的代码
     # 下面这种直接拼肯定是不行的(
-    res.joint_position = np.concatenate([res.joint_position[:mix_frame1], bvh_motion2.joint_position], axis=0)
-    res.joint_rotation = np.concatenate([res.joint_rotation[:mix_frame1], bvh_motion2.joint_rotation], axis=0)
-    
+    # res.joint_position = np.concatenate([res.joint_position[:mix_frame1], bvh_motion2.joint_position], axis=0)
+    # res.joint_rotation = np.concatenate([res.joint_rotation[:mix_frame1], bvh_motion2.joint_rotation], axis=0)
+    target_trans_xz = np.array([bvh_motion1.joint_position[mix_frame1][0][0], bvh_motion1.joint_position[mix_frame1][0][2]])
+    target_dir = np.inner(R.from_quat(bvh_motion1.joint_rotation[mix_frame1][0]).as_matrix(), np.array([0, 0, 1]))
+    target_dir_xz = np.array([target_dir[0], target_dir[2]])
+    bvh_motion2 = bvh_motion2.translation_and_rotation(0, target_trans_xz, target_dir_xz)
+
+    inner_motion = bvh_motion1.raw_copy()
+    inner_motion.joint_position = np.zeros((mix_time, res.joint_position.shape[1], res.joint_position.shape[2]))
+    inner_motion.joint_rotation = np.zeros((mix_time, res.joint_rotation.shape[1], res.joint_rotation.shape[2]))
+
+    joint_len = len(bvh_motion1.joint_channel)
+    for f in range(mix_time):
+        for j in range(joint_len):
+            alpha = f / mix_time
+            
+            trans1 = bvh_motion1.joint_position[mix_frame1 + f][j]
+            trans2 = bvh_motion2.joint_position[f][j]
+            inner_motion.joint_position[f][j] = lerp(trans1, trans2, alpha)
+
+            rot1 = bvh_motion1.joint_rotation[mix_frame1 + f][j]
+            rot2 = bvh_motion2.joint_rotation[f][j]
+            inner_motion.joint_rotation[f][j] = slerp(rot1, rot2, alpha)
+
+    res = res.sub_sequence(0, mix_frame1)
+    res.append(inner_motion)
+    bvh_motion2 = bvh_motion2.sub_sequence(mix_time, -1)
+    res.append(bvh_motion2)
     return res
 
