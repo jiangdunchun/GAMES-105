@@ -1,6 +1,8 @@
 # 以下部分均为可更改部分
 
 from answer_task1 import *
+import torch
+from torch import nn
 
 class CharacterController():
     def __init__(self, controller) -> None:
@@ -10,6 +12,10 @@ class CharacterController():
         self.cur_root_pos = None
         self.cur_root_rot = None
         self.cur_frame = 0
+
+        self.currrent_joint_position = np.array([self.motions[0].joint_position[0]])
+        self.currrent_joint_rotation = np.array([self.motions[0].joint_rotation[0]])
+        self.net = torch.load('motion_material/_net.pth')
         pass
     
     def update_state(self, 
