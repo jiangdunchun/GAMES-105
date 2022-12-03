@@ -1,8 +1,8 @@
 # 以下部分均为可更改部分
-
-from answer_task1 import *
 import torch
 from torch import nn
+
+from answer_task1 import *
 
 class CharacterController():
     def __init__(self, controller) -> None:
@@ -16,6 +16,7 @@ class CharacterController():
         self.currrent_joint_position = np.array([self.motions[0].joint_position[0]])
         self.currrent_joint_rotation = np.array([self.motions[0].joint_rotation[0]])
         self.net = torch.load('motion_material/_net.pth')
+        self.net = self.net.to(device=torch.device('cpu'))
         pass
     
     def update_state(self, 
@@ -53,6 +54,32 @@ class CharacterController():
         self.cur_root_pos = joint_translation[0]
         self.cur_root_rot = joint_orientation[0]
         self.cur_frame = (self.cur_frame + 1) % self.motions[0].motion_length
+
+        l_trans_y = self.currrent_joint_position[0][0][1]
+        l_trans_xz = np.array([self.currrent_joint_position[0][0][0], self.currrent_joint_position[0][0][2]])
+        l_ori_y, l_ori_xz = self.motions[0].decompose_rotation_with_yaxis(self.currrent_joint_rotation[0][0])
+        l_rots = self.currrent_joint_rotation[0][1:-1]
+
+        n_trans_xz = np.array([desired_pos_list[0][0], desired_pos_list[0][2]])
+        n_ori_y, _ = self.motions[0].decompose_rotation_with_yaxis(desired_rot_list[0])
+
+        delta_trans_xz = n_trans_xz - l_trans_xz
+        delta_ori_y = (R.from_quat(n_ori_y) * R.inv(R.from_quat(l_ori_y))).as_quat()
+
+        motion_input = np.zeros((1, 103))
+        motion_input[0][0] = l_trans_y
+        motion_input[0][1:5] = l_ori_xz
+        motion_input[0][5:97] = np.resize(l_rots, (1, 92))
+        motion_input[0][97:99] = delta_trans_xz
+        motion_input[0][99:103] = delta_ori_y
+
+        X = torch.tensor(motion_input, dtype=torch.float32)
+        y_hat = self.net(X)
+
+        motion_output = y_hat.detach().numpy()
+        delta_trans_y = motion_output[0][0]
+        delta_ori_xz = motion_output[0][1:5]
+        delta_rots = np.resize(motion_output[0][5:97], (23, 4))
         
         return joint_name, joint_translation, joint_orientation
     
