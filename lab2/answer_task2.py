@@ -1,24 +1,24 @@
 # 以下部分均为可更改部分
-import torch
-from torch import nn
 
 from answer_task1 import *
+from motion_data_generator import *
 
 class CharacterController():
     def __init__(self, controller) -> None:
         self.motions = []
-        self.motions.append(BVHMotion('motion_material/walk_forward.bvh'))
+        self.motions.append(BVHMotion('motion_material/idle.bvh'))
         self.controller = controller
         self.cur_root_pos = None
         self.cur_root_rot = None
         self.cur_frame = 0
 
-        self.currrent_joint_position = np.array([self.motions[0].joint_position[0]])
-        self.currrent_joint_position[0][0][0] = 0
-        self.currrent_joint_position[0][0][2] = 0
-        self.currrent_joint_rotation = np.array([self.motions[0].joint_rotation[0]])
-        self.net = torch.load('motion_material/_net.pth')
-        self.net = self.net.to(device=torch.device('cpu'))
+        self.last_joints_position = None
+        self.last_joints_rotation = None
+        self.cur_joints_position = None
+        self.cur_joints_rotation = None
+        self.key_joints = [4,9]
+        self.desire_frames_delta = [20, 40, 60, 80, 100]
+        self.joints_size = 25
         pass
     
     def update_state(self, 
@@ -49,80 +49,53 @@ class CharacterController():
         '''
         # 一个简单的例子，输出第i帧的状态
         joint_name = self.motions[0].joint_name
-
-        # joint_translation, joint_orientation = self.motions[0].batch_forward_kinematics()
-        # joint_translation = joint_translation[self.cur_frame]
-        # joint_orientation = joint_orientation[self.cur_frame]
-        
-        # self.cur_root_pos = joint_translation[0]
-        # self.cur_root_rot = joint_orientation[0]
-        #self.cur_frame = (self.cur_frame + 1) % self.motions[0].motion_length
-
-        joint_position = self.motions[0].joint_position[0]
-        joint_rotation = self.motions[0].joint_rotation[0]
-
-        delta_trans_xz = (desired_pos_list[1] - desired_pos_list[0]) / 20
-        ori_euler = (R.from_quat(desired_rot_list[1]) * R.inv(R.from_quat(desired_rot_list[0]))).as_euler('YXZ', degrees=False)
-        delta_ori_y = np.array([0, np.sin(ori_euler[0]/40), 0, np.cos(ori_euler[0]/40)])
-
-        joint_position[0] = joint_position[0] + delta_trans_xz
-        joint_rotation[0] = (R.from_quat(delta_ori_y) * R.from_quat(joint_rotation[0])).as_quat()
-
-        joint_translation, joint_orientation = self.motions[0].batch_forward_kinematics(np.array([joint_position]), np.array([joint_rotation]))
+        joint_translation, joint_orientation = self.motions[0].batch_forward_kinematics()
         joint_translation = joint_translation[self.cur_frame]
         joint_orientation = joint_orientation[self.cur_frame]
         
         self.cur_root_pos = joint_translation[0]
         self.cur_root_rot = joint_orientation[0]
+        self.cur_frame = (self.cur_frame + 1) % self.motions[0].motion_length
 
-        # if self.cur_frame != 0:
-        #     l_trans_y = self.currrent_joint_position[0][0][1]
-        #     l_trans_xz = np.array([self.currrent_joint_position[0][0][0], self.currrent_joint_position[0][0][2]])
-        #     l_ori_y, l_ori_xz = self.motions[0].decompose_rotation_with_yaxis(self.currrent_joint_rotation[0][0])
-        #     l_rots = self.currrent_joint_rotation[0][1:-1]
 
-        #     n_trans_xz = np.array([desired_pos_list[0][0], desired_pos_list[0][2]])
-        #     n_ori_y, _ = self.motions[0].decompose_rotation_with_yaxis(desired_rot_list[0])
 
-        #     delta_trans_xz = (n_trans_xz - l_trans_xz) / 20
-        #     ori_euler = (R.from_quat(n_ori_y) * R.inv(R.from_quat(l_ori_y))).as_euler('YXZ', degrees=False)
-        #     delta_ori_y = np.array([0, np.sin(ori_euler[0]/40), 0, np.cos(ori_euler[0]/40)])
 
-        #     motion_input = np.zeros((1, 103))
-        #     motion_input[0][0] = l_trans_y
-        #     motion_input[0][1:5] = l_ori_xz
-        #     motion_input[0][5:97] = np.resize(l_rots, (1, 92))
-        #     motion_input[0][97:99] = delta_trans_xz
-        #     motion_input[0][99:103] = delta_ori_y
+        last_root_pos = self.last_joints_position[0]
+        last_root_rot = self.last_joints_rotation[0]
+        cur_root_pos = self.cur_joints_position[0]
+        cur_root_rot = self.cur_joints_rotation[0]
+        last_root_local_position = get_local_position_in_coordinate(cur_root_pos, cur_root_rot, last_root_pos)
+        last_root_local_rotation = get_local_rotation_in_coordinate(cur_root_pos, cur_root_rot, last_root_rot)
 
-        #     X = torch.tensor(motion_input, dtype=torch.float32)
-        #     y_hat = self.net(X)
 
-        #     motion_output = y_hat.detach().numpy()
-        #     delta_trans_y = motion_output[0][0]
-        #     delta_ori_xz = motion_output[0][1:5]
-        #     delta_rots = np.resize(motion_output[0][5:97], (23, 4))
+        last_joint_translation, last_joint_orientation = self.motions[0].batch_forward_kinematics(np.array([self.last_joints_position]), np.array([self.last_joints_rotation]))
+        cur_joint_translation, cur_joint_orientation = self.motions[0].batch_forward_kinematics(np.array([self.cur_joints_position]), np.array([self.cur_joints_rotation]))
+        now_key_joint_local_positions = []
+        delta_last_key_joint_local_positions = []
+        for joint in self.key_joints:
+            now_joint_world_position = cur_joint_translation[joint]
+            now_joint_local_position = get_local_position_in_coordinate(cur_root_pos, cur_root_rot, now_joint_world_position)
+            now_key_joint_local_positions.append(now_joint_local_position)
 
-        #     n_trans_y = l_trans_y + delta_trans_y
-        #     n_trans_xz = l_trans_xz + delta_trans_xz
-        #     n_ori_y = (R.from_quat(l_ori_y) * R.from_quat(delta_ori_y)).as_quat()
-        #     n_ori_xz = (R.from_quat(l_ori_xz) * R.from_quat(delta_ori_xz / np.linalg.norm(delta_ori_xz))).as_quat()
-        #     n_rots = np.copy(l_rots)
-        #     for j in range(23):
-        #         n_rots[j] = (R.from_quat(l_rots[j]) * R.from_quat(delta_rots[j] / np.linalg.norm(delta_rots[j]))).as_quat()
+            last_joint_world_position = last_joint_translation[joint]
+            last_joint_local_position = get_local_position_in_coordinate(last_root_pos, last_root_rot, last_joint_world_position)
+            delta_last_joint_local_position = last_joint_local_position - now_joint_local_position
+            delta_last_key_joint_local_positions.append(delta_last_joint_local_position)
 
-        #     self.currrent_joint_position[0][0] = np.array([n_trans_xz[0], n_trans_y, n_trans_xz[1]])
-        #     self.currrent_joint_rotation[0][0] = (R.from_quat(n_ori_y) * R.from_quat(n_ori_xz)).as_quat()
-        #     self.currrent_joint_rotation[0][1:24] = n_rots
+            
 
-        # joint_translation, joint_orientation = self.motions[0].batch_forward_kinematics(self.currrent_joint_position, self.currrent_joint_rotation)
-        # joint_translation = joint_translation[0]
-        # joint_orientation = joint_orientation[0]
-        
-        # self.cur_root_pos = joint_translation[0]
-        # self.cur_root_rot = joint_orientation[0]
+        desire_root_local_positions = []
+        desire_root_local_rotations = []
+        for desire_frame in range(1, len(desired_pos_list)):
+            desire_root_world_position = desired_pos_list[desire_frame]
+            desire_root_world_rotation = desired_rot_list[desire_frame]
 
-        # self.cur_frame = 1
+            desire_root_local_position = get_local_position_root_coordinate(desired_pos_list[0], desired_rot_list[0], desire_root_world_position)
+            desire_root_local_rotation = get_local_rotation_root_coordinate(desired_pos_list[0], desired_rot_list[0], desire_root_world_rotation)
+
+            desire_root_local_positions.append(desire_root_local_position)
+            desire_root_local_rotations.append(desire_root_local_rotation)
+
         
         return joint_name, joint_translation, joint_orientation
     
