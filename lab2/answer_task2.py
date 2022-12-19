@@ -12,10 +12,10 @@ class CharacterController():
         self.cur_root_rot = None
         self.cur_frame = 0
 
-        self.last_joints_position = None
-        self.last_joints_rotation = None
-        self.cur_joints_position = None
-        self.cur_joints_rotation = None
+        self.l_joints_pos_list = None
+        self.l_joints_rot_list = None
+        self.c_joints_pos_list = None
+        self.c_joints_rot_list = None
         self.key_joints = [4,9]
         self.desire_frames_delta = [20, 40, 60, 80, 100]
         self.joints_size = 25
@@ -24,30 +24,30 @@ class CharacterController():
         self.first_flag = True
         pass
 
-    def get_min_lable(self, last_root_local_position, last_root_local_rotation, now_key_joint_local_positions, delta_last_key_joint_world_positions, desire_root_local_positions, desire_root_local_rotations):
+    def get_min_lable(self, l_root_trans_ic, l_root_orien_ic, c_key_joints_pos_list, l_key_joints_trans_icj_list, desire_root_trans_ic_list, desire_root_orien_ic_list):
         data_size = features.shape[0]
         min_cost = 1e10
-        next_root_local_position, next_root_local_rotation, last_key_joint_local_rotations = deconstruct_output_data(self.labels[0], self.joints_size)
+        n_root_trans_ic, n_root_orien_ic, n_joints_no_root_rot_list = deconstruct_output_data(self.labels[0], self.joints_size)
         for iter in range(0, data_size):
             input = self.features[iter]
-            nlast_root_local_position, nlast_root_local_rotation, nnow_key_joint_local_positions, ndelta_last_key_joint_world_positions, ndesire_root_local_positions, ndesire_root_local_rotations = deconstruct_input_data(input, self.key_joints, self.desire_frames_delta)
+            nl_root_trans_ic, nl_root_orien_ic, nc_key_joints_pos_list, nl_key_joints_trans_icj_list, ndesire_root_trans_ic_list, ndesire_root_orien_ic_list = deconstruct_input_data(input, self.key_joints, self.desire_frames_delta)
             now_cost = 0
-            now_cost = now_cost + np.linalg.norm(last_root_local_position - nlast_root_local_position)
-            now_cost = now_cost + np.linalg.norm(last_root_local_rotation - nlast_root_local_rotation) 
+            now_cost = now_cost + np.linalg.norm(l_root_trans_ic - nl_root_trans_ic)
+            now_cost = now_cost + np.linalg.norm(l_root_orien_ic - nl_root_orien_ic) 
 
-            for j in range(len(now_key_joint_local_positions)):
-                now_cost = now_cost + 10 * np.linalg.norm(now_key_joint_local_positions[j] - nnow_key_joint_local_positions[j])
-                now_cost = now_cost + 10 * np.linalg. norm(delta_last_key_joint_world_positions[j] - ndelta_last_key_joint_world_positions[j])
+            for j in range(len(c_key_joints_pos_list)):
+                now_cost = now_cost + 10 * np.linalg.norm(c_key_joints_pos_list[j] - nc_key_joints_pos_list[j])
+                now_cost = now_cost + 10 * np.linalg. norm(l_key_joints_trans_icj_list[j] - nl_key_joints_trans_icj_list[j])
 
-            for d in range(len(desire_root_local_positions)):
-                now_cost = now_cost + np.linalg.norm(desire_root_local_positions[d] - ndesire_root_local_positions[d])
-                now_cost = now_cost + np.linalg.norm(desire_root_local_rotations[d] - ndesire_root_local_rotations[d])
+            for d in range(len(desire_root_trans_ic_list)):
+                now_cost = now_cost + np.linalg.norm(desire_root_trans_ic_list[d] - ndesire_root_trans_ic_list[d])
+                now_cost = now_cost + np.linalg.norm(desire_root_orien_ic_list[d] - ndesire_root_orien_ic_list[d])
 
             if (now_cost < min_cost):
                 min_cost = now_cost
-                next_root_local_position, next_root_local_rotation, last_key_joint_local_rotations = deconstruct_output_data(self.labels[iter], self.joints_size)
+                n_root_trans_ic, n_root_orien_ic, n_joints_no_root_rot_list = deconstruct_output_data(self.labels[iter], self.joints_size)
 
-        return next_root_local_position, next_root_local_rotation, last_key_joint_local_rotations
+        return n_root_trans_ic, n_root_orien_ic, n_joints_no_root_rot_list
     
     def update_state(self, 
                      desired_pos_list, 
@@ -79,60 +79,59 @@ class CharacterController():
         if (self.first_flag):
             self.first_flag = False
 
-            self.last_joints_position = self.motions[0].joint_position[0]
-            self.last_joints_rotation = self.motions[0].joint_rotation[0]
-            self.cur_joints_position = self.motions[0].joint_position[1]
-            self.cur_joints_rotation = self.motions[0].joint_rotation[1]
+            self.l_joints_pos_list = self.motions[0].joint_position[0]
+            self.l_joints_rot_list = self.motions[0].joint_rotation[0]
+            self.c_joints_pos_list = self.motions[0].joint_position[1]
+            self.c_joints_rot_list = self.motions[0].joint_rotation[1]
 
-        last_root_pos = self.last_joints_position[0]
-        last_root_rot = self.last_joints_rotation[0]
-        cur_root_pos = self.cur_joints_position[0]
-        cur_root_rot = self.cur_joints_rotation[0]
-        last_root_local_position = get_local_position_in_coordinate(cur_root_pos, cur_root_rot, last_root_pos)
-        last_root_local_rotation = get_local_rotation_in_coordinate(cur_root_pos, cur_root_rot, last_root_rot)
+        l_root_trans = self.l_joints_pos_list[0]
+        l_root_orien = self.l_joints_rot_list[0]
+        c_root_trans = self.c_joints_pos_list[0]
+        c_root_orien = self.c_joints_rot_list[0]
+        l_root_trans_ic = get_local_pos_in_coord(c_root_trans, c_root_orien, l_root_trans)
+        l_root_orien_ic = get_local_rot_in_coord(c_root_trans, c_root_orien, l_root_orien)
 
-        last_joint_translation, last_joint_orientation = self.motions[0].batch_forward_kinematics(np.array([self.last_joints_position]), np.array([self.last_joints_rotation]))
-        cur_joint_translation, cur_joint_orientation = self.motions[0].batch_forward_kinematics(np.array([self.cur_joints_position]), np.array([self.cur_joints_rotation]))
-        now_key_joint_local_positions = []
-        delta_last_key_joint_world_positions = []
+        l_joints_trans_list, last_joint_orientation = self.motions[0].batch_forward_kinematics(np.array([self.l_joints_pos_list]), np.array([self.l_joints_rot_list]))
+        c_joints_trans_list, cur_joint_orientation = self.motions[0].batch_forward_kinematics(np.array([self.c_joints_pos_list]), np.array([self.c_joints_rot_list]))
+        c_key_joints_pos_list = []
+        l_key_joints_trans_icj_list = []
         for joint in self.key_joints:
-            now_joint_world_position = cur_joint_translation[0][joint]
-            now_joint_local_position = get_local_position_in_coordinate(cur_root_pos, cur_root_rot, now_joint_world_position)
-            now_key_joint_local_positions.append(now_joint_local_position)
+            c_key_joints_trans = c_joints_trans_list[0][joint]
+            c_key_joints_pos = get_local_pos_in_coord(c_root_trans, c_root_orien, c_key_joints_trans)
+            c_key_joints_pos_list.append(c_key_joints_pos)
 
-            last_joint_world_position = last_joint_translation[0][joint]
-            delta_last_key_joint_world_position = last_joint_world_position - now_joint_world_position
-            delta_last_key_joint_world_positions.append(delta_last_key_joint_world_position)
+            l_key_joints_trans = l_joints_trans_list[0][joint]
+            l_key_joints_trans_icj = l_key_joints_trans - c_key_joints_trans
+            l_key_joints_trans_icj_list.append(l_key_joints_trans_icj)
 
-        desire_root_local_positions = []
-        desire_root_local_rotations = []
+        desire_root_trans_ic_list = []
+        desire_root_orien_ic_list = []
         for desire_frame in range(1, len(desired_pos_list)):
-            desire_root_world_position = desired_pos_list[desire_frame]
-            desire_root_world_rotation = desired_rot_list[desire_frame]
+            desire_root_trans = desired_pos_list[desire_frame]
+            desire_root_orien = desired_rot_list[desire_frame]
 
-            desire_root_local_position = get_local_position_in_coordinate(desired_pos_list[0], desired_rot_list[0], desire_root_world_position)
-            desire_root_local_rotation = get_local_rotation_in_coordinate(desired_pos_list[0], desired_rot_list[0], desire_root_world_rotation)
+            desire_root_trans_ic = get_local_pos_in_coord(desired_pos_list[0], desired_rot_list[0], desire_root_trans)
+            desire_root_orien_ic = get_local_rot_in_coord(desired_pos_list[0], desired_rot_list[0], desire_root_orien)
 
-            desire_root_local_positions.append(desire_root_local_position)
-            desire_root_local_rotations.append(desire_root_local_rotation)
+            desire_root_trans_ic_list.append(desire_root_trans_ic)
+            desire_root_orien_ic_list.append(desire_root_orien_ic)
 
-        next_joints_position = np.copy(self.cur_joints_position)
-        next_joints_rotation = np.copy(self.cur_joints_rotation)
-        # todo
-        next_root_local_position, next_root_local_rotation, last_key_joint_local_rotations = self.get_min_lable(last_root_local_position, last_root_local_rotation, now_key_joint_local_positions, delta_last_key_joint_world_positions, desire_root_local_positions, desire_root_local_rotations)
-        next_joints_position[0] = next_joints_position[0] + R.from_quat(next_joints_rotation[0]).as_matrix() @ next_root_local_position
-        next_joints_rotation[0] = (R.from_quat(next_joints_rotation[0]) * R.from_quat(next_root_local_rotation)).as_quat()
+        n_joints_pos_list = np.copy(self.c_joints_pos_list)
+        n_joints_rot_list = np.copy(self.c_joints_rot_list)
+        n_root_trans_ic, n_root_orien_ic, n_joints_no_root_rot_list = self.get_min_lable(l_root_trans_ic, l_root_orien_ic, c_key_joints_pos_list, l_key_joints_trans_icj_list, desire_root_trans_ic_list, desire_root_orien_ic_list)
+        n_joints_pos_list[0] = n_joints_pos_list[0] + R.from_quat(self.c_joints_rot_list[0]).as_matrix() @ n_root_trans_ic
+        n_joints_rot_list[0] = (R.from_quat(n_root_orien_ic) * R.from_quat(self.c_joints_rot_list[0])).as_quat()
         for i in range(1, self.joints_size):
-            next_joints_rotation[i] = last_key_joint_local_rotations[i - 1]
+            n_joints_rot_list[i] = n_joints_no_root_rot_list[i - 1]
 
-        self.last_joints_position = np.copy(self.cur_joints_position)
-        self.last_joints_rotation = np.copy(self.cur_joints_rotation)
+        self.l_joints_pos_list = np.copy(self.c_joints_pos_list)
+        self.l_joints_rot_list = np.copy(self.c_joints_rot_list)
 
-        self.cur_joints_position = next_joints_position
-        self.cur_joints_rotation = next_joints_rotation
+        self.c_joints_pos_list = n_joints_pos_list
+        self.c_joints_rot_list = n_joints_rot_list
 
         
-        joint_translation, joint_orientation = self.motions[0].batch_forward_kinematics(np.array([self.cur_joints_position]), np.array([self.cur_joints_rotation]))
+        joint_translation, joint_orientation = self.motions[0].batch_forward_kinematics(np.array([self.c_joints_pos_list]), np.array([self.c_joints_rot_list]))
         joint_translation = joint_translation[0]
         joint_orientation = joint_orientation[0]
         self.cur_root_pos = joint_translation[0]

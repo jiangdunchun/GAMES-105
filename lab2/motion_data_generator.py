@@ -1,45 +1,30 @@
 from answer_task1 import *
 
-def get_local_position_in_coordinate(position, rotation, world_position):
-    l_position = position
-    l_rotation = R.from_quat(rotation)
+def get_local_pos_in_coord(trans_base, orien_base, trans):
+    return R.inv(R.from_quat(orien_base)).as_matrix() @ (trans - trans_base)
 
-    delta_wolrd_position = world_position - l_position
-    return R.inv(l_rotation).as_matrix() @ delta_wolrd_position
+def get_local_rot_in_coord(trans_base, orien_base, orien):
+    return (R.inv(R.from_quat(orien_base)) * R.from_quat(orien)).as_quat()
 
-def get_local_rotation_in_coordinate(position, rotation, world_rotation):
-    l_rotation = R.from_quat(rotation)
 
-    return (R.inv(l_rotation) * R.from_quat(world_rotation)).as_quat()
 
-def get_local_position_root_coordinate(motion, frame, world_position):
-    root_position = motion.joint_position[frame][0]
-    root_rotation = R.from_quat(motion.joint_rotation[frame][0])
-
-    delta_wolrd_position = world_position - root_position
-    return R.inv(root_rotation).as_matrix() @ delta_wolrd_position
-
-def get_local_rotation_root_coordinate(motion, frame, world_rotation):
-    root_rotation = R.from_quat(motion.joint_rotation[frame][0])
-    return (R.inv(root_rotation) * R.from_quat(world_rotation)).as_quat()
-
-def construct_input_data(last_root_local_position, last_root_local_rotation, now_key_joint_local_positions, delta_last_joint_world_positions, desire_root_local_positions, desire_root_local_rotations):
+def construct_input_data(l_root_trans_ic, l_root_orien_ic, c_key_joints_pos_list, l_key_joints_trans_icj_list, desire_root_trans_ic_list, desire_root_orien_ic_list):
     input = np.array([])
 
-    input = np.append(input, last_root_local_position)
-    input = np.append(input, last_root_local_rotation)
+    input = np.append(input, l_root_trans_ic)
+    input = np.append(input, l_root_orien_ic)
 
-    for now_key_joint_local_position in now_key_joint_local_positions:
-        input = np.append(input, now_key_joint_local_position)
+    for c_key_joints_pos in c_key_joints_pos_list:
+        input = np.append(input, c_key_joints_pos)
 
-    for delta_last_joint_local_position in delta_last_joint_world_positions:
-        input = np.append(input, delta_last_joint_local_position)
+    for l_key_joints_trans_icj in l_key_joints_trans_icj_list:
+        input = np.append(input, l_key_joints_trans_icj)
 
-    for desire_root_local_position in desire_root_local_positions:
-        input = np.append(input, desire_root_local_position)
+    for desire_root_trans_ic in desire_root_trans_ic_list:
+        input = np.append(input, desire_root_trans_ic)
 
-    for desire_root_local_rotation in desire_root_local_rotations:
-        input = np.append(input, desire_root_local_rotation) 
+    for desire_root_orien_ic in desire_root_orien_ic_list:
+        input = np.append(input, desire_root_orien_ic) 
 
     input = input.reshape(1, -1)
     return input  
@@ -47,59 +32,59 @@ def construct_input_data(last_root_local_position, last_root_local_rotation, now
 def deconstruct_input_data(input, key_joints, desire_frames):
     index = 0
 
-    last_root_local_position = input[index:index + 3]
+    l_root_trans_ic = input[index:index + 3]
     index = index + 3
-    last_root_local_rotation = input[index:index + 4]
+    l_root_orien_ic = input[index:index + 4]
     index = index + 4
 
-    now_key_joint_local_positions = []
+    c_key_joints_pos_list = []
     for _ in key_joints:
-        now_key_joint_local_positions.append(input[index:index + 3])
+        c_key_joints_pos_list.append(input[index:index + 3])
         index = index + 3
 
-    delta_last_joint_world_positions = []
+    l_key_joints_trans_icj_list = []
     for _ in key_joints:
-        delta_last_joint_world_positions.append(input[index:index + 3])
+        l_key_joints_trans_icj_list.append(input[index:index + 3])
         index = index + 3
 
-    desire_root_local_positions = []
+    desire_root_trans_ic_list = []
     for _ in desire_frames:
-        desire_root_local_positions.append(input[index:index + 3])
+        desire_root_trans_ic_list.append(input[index:index + 3])
         index = index + 3
     
-    desire_root_local_rotations = []
+    desire_root_orien_ic_list = []
     for _ in desire_frames:
-        desire_root_local_rotations.append(input[index:index + 4])
+        desire_root_orien_ic_list.append(input[index:index + 4])
         index = index + 4
         
-    return last_root_local_position, last_root_local_rotation, now_key_joint_local_positions, delta_last_joint_world_positions, desire_root_local_positions, desire_root_local_rotations      
+    return l_root_trans_ic, l_root_orien_ic, c_key_joints_pos_list, l_key_joints_trans_icj_list, desire_root_trans_ic_list, desire_root_orien_ic_list      
 
-def construct_output_data(next_root_local_position, next_root_local_rotation, delta_next_joint_local_rotations):
-    input = np.array([])
+def construct_output_data(n_root_trans_ic, n_root_orien_ic, n_joints_no_root_rot_list):
+    output = np.array([])
 
-    input = np.append(input, next_root_local_position)
-    input = np.append(input, next_root_local_rotation)
+    output = np.append(output, n_root_trans_ic)
+    output = np.append(output, n_root_orien_ic)
 
-    for delta_next_joint_local_rotation in delta_next_joint_local_rotations:
-        input = np.append(input, delta_next_joint_local_rotation)
+    for n_joints_rot in n_joints_no_root_rot_list:
+        output = np.append(output, n_joints_rot)
 
-    input = input.reshape(1, -1)
-    return input  
+    output = output.reshape(1, -1)
+    return output  
 
 def deconstruct_output_data(output, joints_size):
     index = 0
 
-    next_root_local_position = output[index:index + 3]
+    n_root_trans_ic = output[index:index + 3]
     index = index + 3
-    next_root_local_rotation = output[index:index + 4]
+    n_root_orien_ic = output[index:index + 4]
     index = index + 4
 
-    delta_next_joint_local_rotations = []
+    n_joints_no_root_rot_list = []
     for _ in range(1, joints_size):
-        delta_next_joint_local_rotations.append(output[index:index + 4])
+        n_joints_no_root_rot_list.append(output[index:index + 4])
         index = index + 4
         
-    return next_root_local_position, next_root_local_rotation, delta_next_joint_local_rotations 
+    return n_root_trans_ic, n_root_orien_ic, n_joints_no_root_rot_list 
 
 def load_matching_data(files, key_joints, desire_frames_delta, joints_size):
     features = np.zeros((0, 7 + 6 * len(key_joints) + 7 * len(desire_frames_delta)))
@@ -109,69 +94,70 @@ def load_matching_data(files, key_joints, desire_frames_delta, joints_size):
         motion = BVHMotion(file)
 
         joint_translation, joint_orientation = motion.batch_forward_kinematics()
-        for frame in range(1, motion.motion_length):
-            last_frame = frame - 1
+        for c_frame in range(1, motion.motion_length):
+            l_frame = c_frame - 1
 
-            last_root_world_position = motion.joint_position[last_frame][0]
-            last_root_world_rotation = motion.joint_rotation[last_frame][0]
+            c_root_trans = motion.joint_position[c_frame][0]
+            c_root_orien = motion.joint_rotation[c_frame][0]
 
-            last_root_local_position = get_local_position_root_coordinate(motion, frame, last_root_world_position)
-            last_root_local_rotation = get_local_rotation_root_coordinate(motion, frame, last_root_world_rotation)
+            l_root_trans = motion.joint_position[l_frame][0]
+            l_root_orien = motion.joint_rotation[l_frame][0]
 
-            now_key_joint_local_positions = []
-            delta_last_key_joint_world_positions = []
+            l_root_trans_ic = get_local_pos_in_coord(c_root_trans, c_root_orien, l_root_trans)
+            l_root_orien_ic = get_local_rot_in_coord(c_root_trans, c_root_orien, l_root_orien)
+
+            c_key_joints_pos_list = []
+            l_key_joints_trans_icj_list = []
             for joint in key_joints:
-                now_joint_world_position = joint_translation[frame][joint]
-                now_joint_local_position = get_local_position_root_coordinate(motion, frame, now_joint_world_position)
+                c_joint_trans = joint_translation[c_frame][joint]
+                c_joint_pos = get_local_pos_in_coord(c_root_trans, c_root_orien, c_joint_trans)
 
-                now_key_joint_local_positions.append(now_joint_local_position)
+                l_joint_trans = joint_translation[l_frame][joint]
+                l_key_joints_trans_icj = l_joint_trans - c_joint_trans
 
-                last_joint_world_position = joint_translation[last_frame][joint]
-
-                delta_last_joint_world_position = last_joint_world_position - now_joint_world_position
-
-                delta_last_key_joint_world_positions.append(delta_last_joint_world_position)
+                c_key_joints_pos_list.append(c_joint_pos)
+                l_key_joints_trans_icj_list.append(l_key_joints_trans_icj)
 
             desire_frames = []
-            for delta in desire_frames_delta:
-                desire_frames.append(frame + delta)
+            for frame_delta in desire_frames_delta:
+                desire_frames.append(c_frame + frame_delta)
             if desire_frames[-1] >= motion.motion_length:
                 break
             
-            desire_root_local_positions = []
-            desire_root_local_rotations = []
+            desire_root_trans_ic_list = []
+            desire_root_orien_ic_list = []
             for desire_frame in desire_frames:
-                desire_root_world_position = motion.joint_position[desire_frame][0]
-                desire_root_world_rotation = motion.joint_rotation[desire_frame][0]
+                desire_root_trans = motion.joint_position[desire_frame][0]
+                desire_root_orien = motion.joint_rotation[desire_frame][0]
 
-                desire_root_local_position = get_local_position_root_coordinate(motion, frame, desire_root_world_position)
-                desire_root_local_rotation = get_local_rotation_root_coordinate(motion, frame, desire_root_world_rotation)
+                desire_root_trans_ic = get_local_pos_in_coord(c_root_trans, c_root_orien, desire_root_trans)
+                desire_root_orien_ic = get_local_rot_in_coord(c_root_trans, c_root_orien, desire_root_orien)
 
-                desire_root_local_positions.append(desire_root_local_position)
-                desire_root_local_rotations.append(desire_root_local_rotation)
+                desire_root_trans_ic_list.append(desire_root_trans_ic)
+                desire_root_orien_ic_list.append(desire_root_orien_ic)
 
             
-            input = construct_input_data(last_root_local_position, last_root_local_rotation, now_key_joint_local_positions, delta_last_key_joint_world_positions, desire_root_local_positions, desire_root_local_rotations)
+            input = construct_input_data(l_root_trans_ic, l_root_orien_ic, c_key_joints_pos_list, l_key_joints_trans_icj_list, desire_root_trans_ic_list, desire_root_orien_ic_list)
             features = np.concatenate((features, input), axis=0)
 
 
 
-            next_frame = frame + 1
+            n_frame = c_frame + 1
 
-            next_root_world_position = motion.joint_position[next_frame][0]
-            next_root_world_rotation = motion.joint_rotation[next_frame][0]
+            n_root_trans = motion.joint_position[n_frame][0]
+            n_root_orien = motion.joint_rotation[n_frame][0]
 
-            next_root_local_position = get_local_position_root_coordinate(motion, frame, next_root_world_position)
-            next_root_local_rotation = get_local_rotation_root_coordinate(motion, frame, next_root_world_rotation)
+            n_root_trans_ic = get_local_pos_in_coord(c_root_trans, c_root_orien, n_root_trans)
+            n_root_orien_ic = get_local_rot_in_coord(c_root_trans, c_root_orien, n_root_orien)
 
-            next_joint_local_rotations = []
+            n_joints_no_root_rot_list = []
             for joint in range(1, joints_size):
-                next_joint_local_rotations.append(motion.joint_rotation[next_frame][joint])
+                n_joints_no_root_rot_list.append(motion.joint_rotation[n_frame][joint])
 
-            next_root_local_position[1] = 0
-            next_root_local_rotation, _ = motion.decompose_rotation_with_yaxis(next_root_local_rotation)
+            n_root_trans_ic[1] = 0
+            n_root_orien_ic, _ = motion.decompose_rotation_with_yaxis(n_root_orien_ic)
 
-            output = construct_output_data(next_root_local_position, next_root_local_rotation, next_joint_local_rotations)
+            output = construct_output_data(n_root_trans_ic, n_root_orien_ic, n_joints_no_root_rot_list)
             labels = np.concatenate((labels, output), axis=0)
 
     return features, labels
@@ -200,6 +186,7 @@ key_joints = [4,9]
 desire_frames_delta = [20, 40, 60, 80, 100]
 joints_size = 25
 features, labels = load_matching_data(motion_files, key_joints, desire_frames_delta, joints_size)
+
 
 np.savetxt('motion_material/_features.csv', features, fmt='%f', delimiter=',')
 np.savetxt('motion_material/_labels.csv', labels, fmt='%f', delimiter=',')
