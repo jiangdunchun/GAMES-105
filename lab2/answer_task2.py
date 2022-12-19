@@ -19,7 +19,35 @@ class CharacterController():
         self.key_joints = [4,9]
         self.desire_frames_delta = [20, 40, 60, 80, 100]
         self.joints_size = 25
+        self.features = np.loadtxt('motion_material/_features.csv', dtype =np.float, delimiter=',', unpack=False)
+        self.labels = np.loadtxt('motion_material/_labels.csv', dtype=np.float, delimiter=',', unpack=False)
+        self.first_flag = True
         pass
+
+    def get_min_lable(self, last_root_local_position, last_root_local_rotation, now_key_joint_local_positions, delta_last_key_joint_world_positions, desire_root_local_positions, desire_root_local_rotations):
+        data_size = features.shape[0]
+        min_cost = 1e10
+        next_root_local_position, next_root_local_rotation, last_key_joint_local_rotations = deconstruct_output_data(self.labels[0], self.joints_size)
+        for iter in range(0, data_size):
+            input = self.features[iter]
+            nlast_root_local_position, nlast_root_local_rotation, nnow_key_joint_local_positions, ndelta_last_key_joint_world_positions, ndesire_root_local_positions, ndesire_root_local_rotations = deconstruct_input_data(input, self.key_joints, self.desire_frames_delta)
+            now_cost = 0
+            now_cost = now_cost + np.linalg.norm(last_root_local_position - nlast_root_local_position)
+            now_cost = now_cost + np.linalg.norm(last_root_local_rotation - nlast_root_local_rotation) 
+
+            for j in range(len(now_key_joint_local_positions)):
+                now_cost = now_cost + 10 * np.linalg.norm(now_key_joint_local_positions[j] - nnow_key_joint_local_positions[j])
+                now_cost = now_cost + 10 * np.linalg. norm(delta_last_key_joint_world_positions[j] - ndelta_last_key_joint_world_positions[j])
+
+            for d in range(len(desire_root_local_positions)):
+                now_cost = now_cost + np.linalg.norm(desire_root_local_positions[d] - ndesire_root_local_positions[d])
+                now_cost = now_cost + np.linalg.norm(desire_root_local_rotations[d] - ndesire_root_local_rotations[d])
+
+            if (now_cost < min_cost):
+                min_cost = now_cost
+                next_root_local_position, next_root_local_rotation, last_key_joint_local_rotations = deconstruct_output_data(self.labels[iter], self.joints_size)
+
+        return next_root_local_position, next_root_local_rotation, last_key_joint_local_rotations
     
     def update_state(self, 
                      desired_pos_list, 
@@ -48,17 +76,13 @@ class CharacterController():
             如果和你的角色动作速度对不上,你可以在init或这里对属性进行修改
         '''
         # 一个简单的例子，输出第i帧的状态
-        joint_name = self.motions[0].joint_name
-        joint_translation, joint_orientation = self.motions[0].batch_forward_kinematics()
-        joint_translation = joint_translation[self.cur_frame]
-        joint_orientation = joint_orientation[self.cur_frame]
-        
-        self.cur_root_pos = joint_translation[0]
-        self.cur_root_rot = joint_orientation[0]
-        self.cur_frame = (self.cur_frame + 1) % self.motions[0].motion_length
+        if (self.first_flag):
+            self.first_flag = False
 
-
-
+            self.last_joints_position = self.motions[0].joint_position[0]
+            self.last_joints_rotation = self.motions[0].joint_rotation[0]
+            self.cur_joints_position = self.motions[0].joint_position[1]
+            self.cur_joints_rotation = self.motions[0].joint_rotation[1]
 
         last_root_pos = self.last_joints_position[0]
         last_root_rot = self.last_joints_rotation[0]
@@ -67,22 +91,18 @@ class CharacterController():
         last_root_local_position = get_local_position_in_coordinate(cur_root_pos, cur_root_rot, last_root_pos)
         last_root_local_rotation = get_local_rotation_in_coordinate(cur_root_pos, cur_root_rot, last_root_rot)
 
-
         last_joint_translation, last_joint_orientation = self.motions[0].batch_forward_kinematics(np.array([self.last_joints_position]), np.array([self.last_joints_rotation]))
         cur_joint_translation, cur_joint_orientation = self.motions[0].batch_forward_kinematics(np.array([self.cur_joints_position]), np.array([self.cur_joints_rotation]))
         now_key_joint_local_positions = []
-        delta_last_key_joint_local_positions = []
+        delta_last_key_joint_world_positions = []
         for joint in self.key_joints:
-            now_joint_world_position = cur_joint_translation[joint]
+            now_joint_world_position = cur_joint_translation[0][joint]
             now_joint_local_position = get_local_position_in_coordinate(cur_root_pos, cur_root_rot, now_joint_world_position)
             now_key_joint_local_positions.append(now_joint_local_position)
 
-            last_joint_world_position = last_joint_translation[joint]
-            last_joint_local_position = get_local_position_in_coordinate(last_root_pos, last_root_rot, last_joint_world_position)
-            delta_last_joint_local_position = last_joint_local_position - now_joint_local_position
-            delta_last_key_joint_local_positions.append(delta_last_joint_local_position)
-
-            
+            last_joint_world_position = last_joint_translation[0][joint]
+            delta_last_key_joint_world_position = last_joint_world_position - now_joint_world_position
+            delta_last_key_joint_world_positions.append(delta_last_key_joint_world_position)
 
         desire_root_local_positions = []
         desire_root_local_rotations = []
@@ -90,14 +110,34 @@ class CharacterController():
             desire_root_world_position = desired_pos_list[desire_frame]
             desire_root_world_rotation = desired_rot_list[desire_frame]
 
-            desire_root_local_position = get_local_position_root_coordinate(desired_pos_list[0], desired_rot_list[0], desire_root_world_position)
-            desire_root_local_rotation = get_local_rotation_root_coordinate(desired_pos_list[0], desired_rot_list[0], desire_root_world_rotation)
+            desire_root_local_position = get_local_position_in_coordinate(desired_pos_list[0], desired_rot_list[0], desire_root_world_position)
+            desire_root_local_rotation = get_local_rotation_in_coordinate(desired_pos_list[0], desired_rot_list[0], desire_root_world_rotation)
 
             desire_root_local_positions.append(desire_root_local_position)
             desire_root_local_rotations.append(desire_root_local_rotation)
 
+        next_joints_position = np.copy(self.cur_joints_position)
+        next_joints_rotation = np.copy(self.cur_joints_rotation)
+        # todo
+        next_root_local_position, next_root_local_rotation, last_key_joint_local_rotations = self.get_min_lable(last_root_local_position, last_root_local_rotation, now_key_joint_local_positions, delta_last_key_joint_world_positions, desire_root_local_positions, desire_root_local_rotations)
+        next_joints_position[0] = next_joints_position[0] + R.from_quat(next_joints_rotation[0]).as_matrix() @ next_root_local_position
+        next_joints_rotation[0] = (R.from_quat(next_joints_rotation[0]) * R.from_quat(next_root_local_rotation)).as_quat()
+        for i in range(1, self.joints_size):
+            next_joints_rotation[i] = last_key_joint_local_rotations[i - 1]
+
+        self.last_joints_position = np.copy(self.cur_joints_position)
+        self.last_joints_rotation = np.copy(self.cur_joints_rotation)
+
+        self.cur_joints_position = next_joints_position
+        self.cur_joints_rotation = next_joints_rotation
+
         
-        return joint_name, joint_translation, joint_orientation
+        joint_translation, joint_orientation = self.motions[0].batch_forward_kinematics(np.array([self.cur_joints_position]), np.array([self.cur_joints_rotation]))
+        joint_translation = joint_translation[0]
+        joint_orientation = joint_orientation[0]
+        self.cur_root_pos = joint_translation[0]
+        self.cur_root_rot = joint_orientation[0]
+        return self.motions[0].joint_name, joint_translation, joint_orientation
     
     
     def sync_controller_and_character(self, controller, character_state):

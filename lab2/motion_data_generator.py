@@ -23,7 +23,7 @@ def get_local_rotation_root_coordinate(motion, frame, world_rotation):
     root_rotation = R.from_quat(motion.joint_rotation[frame][0])
     return (R.inv(root_rotation) * R.from_quat(world_rotation)).as_quat()
 
-def construct_input_data(last_root_local_position, last_root_local_rotation, now_key_joint_local_positions, delta_last_joint_local_positions, desire_root_local_positions, desire_root_local_rotations):
+def construct_input_data(last_root_local_position, last_root_local_rotation, now_key_joint_local_positions, delta_last_joint_world_positions, desire_root_local_positions, desire_root_local_rotations):
     input = np.array([])
 
     input = np.append(input, last_root_local_position)
@@ -32,7 +32,7 @@ def construct_input_data(last_root_local_position, last_root_local_rotation, now
     for now_key_joint_local_position in now_key_joint_local_positions:
         input = np.append(input, now_key_joint_local_position)
 
-    for delta_last_joint_local_position in delta_last_joint_local_positions:
+    for delta_last_joint_local_position in delta_last_joint_world_positions:
         input = np.append(input, delta_last_joint_local_position)
 
     for desire_root_local_position in desire_root_local_positions:
@@ -41,6 +41,7 @@ def construct_input_data(last_root_local_position, last_root_local_rotation, now
     for desire_root_local_rotation in desire_root_local_rotations:
         input = np.append(input, desire_root_local_rotation) 
 
+    input = input.reshape(1, -1)
     return input  
 
 def deconstruct_input_data(input, key_joints, desire_frames):
@@ -56,60 +57,53 @@ def deconstruct_input_data(input, key_joints, desire_frames):
         now_key_joint_local_positions.append(input[index:index + 3])
         index = index + 3
 
-    delta_last_joint_local_positions = []
+    delta_last_joint_world_positions = []
     for _ in key_joints:
-        delta_last_joint_local_positions.append(input[index:index + 3])
+        delta_last_joint_world_positions.append(input[index:index + 3])
         index = index + 3
 
     desire_root_local_positions = []
-    for _ in key_joints:
+    for _ in desire_frames:
         desire_root_local_positions.append(input[index:index + 3])
         index = index + 3
     
     desire_root_local_rotations = []
-    for _ in key_joints:
+    for _ in desire_frames:
         desire_root_local_rotations.append(input[index:index + 4])
         index = index + 4
         
-    return last_root_local_position, last_root_local_rotation, now_key_joint_local_positions, delta_last_joint_local_positions, desire_root_local_positions, desire_root_local_rotations      
+    return last_root_local_position, last_root_local_rotation, now_key_joint_local_positions, delta_last_joint_world_positions, desire_root_local_positions, desire_root_local_rotations      
 
-def construct_output_data(next_root_local_position, next_root_local_rotation, delta_next_joint_local_positions, delta_next_joint_local_rotations):
+def construct_output_data(next_root_local_position, next_root_local_rotation, delta_next_joint_local_rotations):
     input = np.array([])
 
     input = np.append(input, next_root_local_position)
     input = np.append(input, next_root_local_rotation)
 
-    for delta_next_joint_local_position in delta_next_joint_local_positions:
-        input = np.append(input, delta_next_joint_local_position)
-
     for delta_next_joint_local_rotation in delta_next_joint_local_rotations:
         input = np.append(input, delta_next_joint_local_rotation)
 
+    input = input.reshape(1, -1)
     return input  
 
 def deconstruct_output_data(output, joints_size):
     index = 0
 
-    next_root_local_position = input[index:index + 3]
+    next_root_local_position = output[index:index + 3]
     index = index + 3
-    next_root_local_rotation = input[index:index + 4]
+    next_root_local_rotation = output[index:index + 4]
     index = index + 4
 
-    delta_next_joint_local_positions = []
-    for _ in range(1, joints_size):
-        delta_next_joint_local_positions.append(input[index:index + 3])
-        index = index + 3
-
     delta_next_joint_local_rotations = []
-    for _ in (1, joints_size):
-        delta_next_joint_local_rotations.append(input[index:index + 3])
-        index = index + 3
+    for _ in range(1, joints_size):
+        delta_next_joint_local_rotations.append(output[index:index + 4])
+        index = index + 4
         
-    return next_root_local_position, next_root_local_rotation, delta_next_joint_local_positions, delta_next_joint_local_rotations 
+    return next_root_local_position, next_root_local_rotation, delta_next_joint_local_rotations 
 
 def load_matching_data(files, key_joints, desire_frames_delta, joints_size):
     features = np.zeros((0, 7 + 6 * len(key_joints) + 7 * len(desire_frames_delta)))
-    labels = np.zeros((0, 7 + 7 * (joints_size - 1)))
+    labels = np.zeros((0, 7 + 4 * (joints_size - 1)))
 
     for file in files:
         motion = BVHMotion(file)
@@ -125,7 +119,7 @@ def load_matching_data(files, key_joints, desire_frames_delta, joints_size):
             last_root_local_rotation = get_local_rotation_root_coordinate(motion, frame, last_root_world_rotation)
 
             now_key_joint_local_positions = []
-            delta_last_key_joint_local_positions = []
+            delta_last_key_joint_world_positions = []
             for joint in key_joints:
                 now_joint_world_position = joint_translation[frame][joint]
                 now_joint_local_position = get_local_position_root_coordinate(motion, frame, now_joint_world_position)
@@ -133,11 +127,10 @@ def load_matching_data(files, key_joints, desire_frames_delta, joints_size):
                 now_key_joint_local_positions.append(now_joint_local_position)
 
                 last_joint_world_position = joint_translation[last_frame][joint]
-                last_joint_local_position = get_local_position_root_coordinate(motion, last_frame, last_joint_world_position)
 
-                delta_last_joint_local_position = last_joint_local_position - now_joint_local_position
+                delta_last_joint_world_position = last_joint_world_position - now_joint_world_position
 
-                delta_last_key_joint_local_positions.append(delta_last_joint_local_position)
+                delta_last_key_joint_world_positions.append(delta_last_joint_world_position)
 
             desire_frames = []
             for delta in desire_frames_delta:
@@ -158,8 +151,7 @@ def load_matching_data(files, key_joints, desire_frames_delta, joints_size):
                 desire_root_local_rotations.append(desire_root_local_rotation)
 
             
-            input = construct_input_data(last_root_local_position, last_root_local_rotation, now_key_joint_local_positions, delta_last_key_joint_local_positions, desire_root_local_positions, desire_root_local_rotations)
-            input = input.reshape(1, -1)
+            input = construct_input_data(last_root_local_position, last_root_local_rotation, now_key_joint_local_positions, delta_last_key_joint_world_positions, desire_root_local_positions, desire_root_local_rotations)
             features = np.concatenate((features, input), axis=0)
 
 
@@ -172,17 +164,14 @@ def load_matching_data(files, key_joints, desire_frames_delta, joints_size):
             next_root_local_position = get_local_position_root_coordinate(motion, frame, next_root_world_position)
             next_root_local_rotation = get_local_rotation_root_coordinate(motion, frame, next_root_world_rotation)
 
-            delta_next_joint_local_positions = []
-            delta_next_joint_local_rotations = []
+            next_joint_local_rotations = []
             for joint in range(1, joints_size):
-                delta_next_joint_local_position = motion.joint_position[next_frame][joint] - motion.joint_position[frame][joint]
-                delta_next_joint_local_rotation = (R.inv(R.from_quat(motion.joint_rotation[frame][joint])) * R.from_quat(motion.joint_rotation[next_frame][joint])).as_quat()
+                next_joint_local_rotations.append(motion.joint_rotation[next_frame][joint])
 
-                delta_next_joint_local_positions.append(delta_next_joint_local_position)
-                delta_next_joint_local_rotations.append(delta_next_joint_local_rotation)
+            next_root_local_position[1] = 0
+            next_root_local_rotation, _ = motion.decompose_rotation_with_yaxis(next_root_local_rotation)
 
-            output = construct_output_data(next_root_local_position, next_root_local_rotation, delta_next_joint_local_positions, delta_next_joint_local_rotations)
-            output = output.reshape(1, -1)
+            output = construct_output_data(next_root_local_position, next_root_local_rotation, next_joint_local_rotations)
             labels = np.concatenate((labels, output), axis=0)
 
     return features, labels
@@ -191,11 +180,11 @@ def load_matching_data(files, key_joints, desire_frames_delta, joints_size):
 
 motion_files = [
     'motion_material/idle.bvh',
-    'motion_material/run_forward.bvh',
+    # 'motion_material/run_forward.bvh',
     'motion_material/walk_and_ture_right.bvh',
     'motion_material/walk_and_turn_left.bvh',
     'motion_material/walk_forward.bvh',
-    'motion_material/walkF.bvh',
+    # 'motion_material/walkF.bvh',
 
     # 'motion_material/physics_motion/long_run.bvh',
     # 'motion_material/physics_motion/long_run_mirror.bvh',
