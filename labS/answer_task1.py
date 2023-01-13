@@ -18,5 +18,16 @@ def skinning(joint_translation, joint_orientation, T_pose_joint_translation, T_p
     vertex_translation = T_pose_vertex_translation.copy()
     
     #---------------你的代码------------------#
+    vertices_num = T_pose_vertex_translation.shape[0]
+    for v_index in range(vertices_num):
+        v_trans = np.array([0,0,0])
+        for j in range(4):
+            if skinning_weight[v_index][j] == 0.:
+                continue
+            j_index = skinning_idx[v_index][j]
+            offset = T_pose_vertex_translation[v_index] - T_pose_joint_translation[j_index]
+            trans = np.inner(R.from_quat(joint_orientation[j_index]).as_matrix(), offset) + joint_translation[j_index]
+            v_trans = v_trans + skinning_weight[v_index][j] * trans
+        vertex_translation[v_index] = v_trans
     
     return vertex_translation
