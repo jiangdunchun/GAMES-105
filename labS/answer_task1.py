@@ -1,6 +1,22 @@
 from bvh_utils import *
 #---------------你的代码------------------#
+def dot(v1, v2):
+    ret = np.zeros(v1.shape)
+    ret[:,:,0] = v1[:,:,1] * v2[:,:,2] - v1[:,:,2] * v2[:,:,1]
+    ret[:,:,1] = v1[:,:,2] * v2[:,:,0] - v1[:,:,0] * v2[:,:,2]
+    ret[:,:,2] = v1[:,:,0] * v2[:,:,1] - v1[:,:,1] * v2[:,:,0]
+    return ret
+
+def multiply(quat, vec):
+    qvec = quat[:,:,0:3]
+    uv = dot(qvec, vec)
+    uuv = dot(qvec, uv)
+    uv = np.einsum('ijk, ij->ijk', uv, 2.0 * quat[:,:,3])
+    uuv = 2.0 * uuv
+    return vec + uv + uuv
+
 # translation 和 orientation 都是全局的
+T_offset = np.zeros((0,0,0))
 def skinning(joint_translation, joint_orientation, T_pose_joint_translation, T_pose_vertex_translation, skinning_idx, skinning_weight):
     """
     skinning函数，给出一桢骨骼的位姿，计算蒙皮顶点的位置
@@ -18,16 +34,29 @@ def skinning(joint_translation, joint_orientation, T_pose_joint_translation, T_p
     vertex_translation = T_pose_vertex_translation.copy()
     
     #---------------你的代码------------------#
-    vertices_num = T_pose_vertex_translation.shape[0]
-    for v_index in range(vertices_num):
-        v_trans = np.array([0,0,0])
+    N = T_pose_vertex_translation.shape[0]
+
+    global T_offset
+    if T_offset.shape[0] == 0:
+        T_offset = np.zeros((4, N, 3))
+        for v_index in range(N):
+            for j in range(4):
+                j_index = skinning_idx[v_index][j]
+                T_offset[j][v_index] = T_pose_joint_translation[j_index]
+
         for j in range(4):
-            if skinning_weight[v_index][j] == 0.:
-                continue
+            T_offset[j] = T_pose_vertex_translation - T_offset[j]
+
+    j_position = np.zeros((4, N, 3))
+    j_rotation = np.zeros((4, N, 4))
+    for v_index in range(N):
+        for j in range(4):
             j_index = skinning_idx[v_index][j]
-            offset = T_pose_vertex_translation[v_index] - T_pose_joint_translation[j_index]
-            trans = np.inner(R.from_quat(joint_orientation[j_index]).as_matrix(), offset) + joint_translation[j_index]
-            v_trans = v_trans + skinning_weight[v_index][j] * trans
-        vertex_translation[v_index] = v_trans
-    
+            j_position[j][v_index] = joint_translation[j_index]
+            j_rotation[j][v_index] = joint_orientation[j_index]
+
+    j_offset = multiply(j_rotation, T_offset)
+    w_position = j_offset + j_position
+    vertex_translation = np.einsum('ijk, ji->jk', w_position, skinning_weight)
+
     return vertex_translation
