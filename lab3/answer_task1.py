@@ -21,19 +21,21 @@ def part1_cal_torque(pose, physics_info: PhysicsInfo, **kargs):
 
     global_torque = np.zeros((20,3))
     for j in range(20):
+        p_orientation = R.identity()
         p = parent_index[j]
-        if p == -1:
-            continue
+        if p != -1:
+            p_orientation = R.from_quat(joint_orientation[p])
 
-        j_rotation = (R.inv(R.from_quat(joint_orientation[p])) * R.from_quat(joint_orientation[j])).as_euler('XYZ', degrees=True)
+        j_rotation = (R.inv(p_orientation) * R.from_quat(joint_orientation[j])).as_euler('XYZ', degrees=True)
         j_dst_rotation = R.from_quat(pose[j]).as_euler('XYZ', degrees=True)
-        j_avel = R.inv(R.from_quat(joint_orientation[p])).as_matrix() @ joint_avel[j]
+        j_avel = R.inv(p_orientation).as_matrix() @ joint_avel[j]
         torque = kp * (j_dst_rotation - j_rotation) - kd * j_avel
-        torque = R.from_quat(joint_orientation[p]).as_matrix() @ torque
+        torque = p_orientation.as_matrix() @ torque
         #torque = np.clip(torque, -10, 10)
 
         global_torque[j] = global_torque[j] + torque
-        global_torque[p] = global_torque[p] - torque
+        if p != -1:
+            global_torque[p] = global_torque[p] - torque
     
     return global_torque
 
