@@ -51,6 +51,8 @@ def part2_cal_float_base_torque(target_position, pose, physics_info, **kargs):
     kd = kargs.get('root_kd', 20)
     root_position, root_velocity = physics_info.get_root_pos_and_vel()
     global_root_force = np.zeros((3,))
+
+    global_root_force = kp * (target_position - root_position) - kd * root_velocity
     return global_root_force, global_torque
 
 def part3_cal_static_standing_torque(bvh: BVHMotion, physics_info):
