@@ -75,5 +75,12 @@ def part3_cal_static_standing_torque(bvh: BVHMotion, physics_info):
     tar_pos = tar_pos * 0.8 + joint_positions[9] * 0.1 + joint_positions[10] * 0.1
 
     torque = np.zeros((20,3))
+
+    root_position, root_velocity = physics_info.get_root_pos_and_vel()
+    global_root_force = 500 * (tar_pos - root_position) - 20 * root_velocity
+    torque = part1_cal_torque(pose, physics_info)
+    for j in range(3, 9):
+        torque[j] = torque[j] + np.dot(tar_pos - joint_positions[j], global_root_force)
+
     return torque
 
