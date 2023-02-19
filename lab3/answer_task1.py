@@ -12,8 +12,31 @@ def part1_cal_torque(pose, physics_info: PhysicsInfo, **kargs):
     输出： global_torque: (20,3)的numpy数组，表示每个关节的全局坐标下的目标力矩，根节点力矩会被后续代码无视
     '''
     # ------一些提示代码，你可以随意修改------------#
-    kp = kargs.get('kp', 500) # 需要自行调整kp和kd！ 而且也可以是一个数组，指定每个关节的kp和kd
-    kd = kargs.get('kd', 20) 
+    '''
+    0 'RootJoint'
+    1 'pelvis_lowerback'
+    2 'lowerback_torso'
+    3 'rHip'
+    4 'lHip'
+    5 'rKnee'
+    6 'lKnee'
+    7 'rAnkle'
+    8 'lAnkle'
+    9 'rToeJoint'
+    10 'lToeJoint'
+    11 'torso_head'
+    12 'rTorso_Clavicle'
+    13 'lTorso_Clavicle'
+    14 'rShoulder'
+    15 'lShoulder'
+    16 'rElbow'
+    17 'lElbow'
+    18 'rWrist'
+    19 'lWrist'
+    '''
+    # ----------------------------|0    |1    |2    |3    |4    |5    |6    |7    |8    |9    |10   |11   |12   |13   |14   |15   |16   |17   |18   |19   #
+    kp = kargs.get('kp', np.array([500  ,500  ,500  ,500  ,500  ,500  ,500  ,500  ,500  ,500  ,500  ,500  ,500  ,500  ,500  ,500  ,500  ,500  ,500  ,500  ]))
+    kd = kargs.get('kd', np.array([20   ,20   ,20   ,20   ,20   ,20   ,20   ,20   ,20   ,20   ,20   ,60   ,20   ,20   ,60   ,60   ,20   ,20   ,20   ,20   ])) 
     parent_index = physics_info.parent_index
     joint_name = physics_info.joint_name
     joint_orientation = physics_info.get_joint_orientation()
@@ -29,9 +52,9 @@ def part1_cal_torque(pose, physics_info: PhysicsInfo, **kargs):
         j_rotation = (R.inv(p_orientation) * R.from_quat(joint_orientation[j])).as_euler('XYZ', degrees=True)
         j_dst_rotation = R.from_quat(pose[j]).as_euler('XYZ', degrees=True)
         j_avel = R.inv(p_orientation).as_matrix() @ joint_avel[j]
-        torque = kp * (j_dst_rotation - j_rotation) - kd * j_avel
+        torque = kp[j] * (j_dst_rotation - j_rotation) - kd[j] * j_avel
         torque = p_orientation.as_matrix() @ torque
-        #torque = np.clip(torque, -10, 10)
+        # torque = np.clip(torque, -10, 10)
 
         global_torque[j] = global_torque[j] + torque
         if p != -1:
@@ -77,10 +100,10 @@ def part3_cal_static_standing_torque(bvh: BVHMotion, physics_info):
     torque = np.zeros((20,3))
 
     root_position, root_velocity = physics_info.get_root_pos_and_vel()
-    global_root_force = 4000 * (tar_pos - root_position) - 20 * root_velocity
+    global_root_force = 4000 * (tar_pos - root_position) - 60 * root_velocity
     torque = part1_cal_torque(pose, physics_info)
     for j in range(3, 9):
-        torque[j] = torque[j] - np.dot(tar_pos - joint_positions[j], global_root_force)
+        torque[j] = torque[j] + np.cross(root_position - joint_positions[j], global_root_force)
 
     return torque
 
